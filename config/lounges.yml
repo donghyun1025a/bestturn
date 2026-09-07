@@ -1,0 +1,83 @@
+# 라운지 / 항공사 얼라이언스 수동 설정
+#
+# ⚠️ 라운지 운영시간·위치·계약 상태는 수시로 바뀝니다. 의전 투입 전 반드시 최신화하세요.
+# 봇 재시작 없이 /reload 명령으로 이 파일을 다시 읽을 수 있습니다.
+
+# 항공사 IATA 코드 → 얼라이언스
+alliances:
+  star:
+    name: Star Alliance
+    airlines: [OZ, NH, UA, LH, SQ, TG, AC, TK, SK, LX, OS, SA, NZ, CA, ZH, MS, ET, AI, BR, TP, A3, JU, SN, LO]
+  skyteam:
+    name: SkyTeam
+    airlines: [KE, DL, AF, KL, CI, CZ, MU, VN, GA, SU, AZ, AM, AR, RO, KQ, ME, SV, UX, VS, MF]
+  oneworld:
+    name: oneworld
+    airlines: [JL, AA, BA, CX, QF, QR, AY, IB, MH, RJ, UL, S7, AT, FJ, AS]
+
+# 항공사별 개별 지정 (얼라이언스보다 우선). 코드셰어 의전 시 실제 운항사 기준.
+airline_overrides:
+  KE:
+    lounges: [ke_prestige_t2, ke_first_t2]
+  OZ:
+    lounges: [oz_business_t1]
+
+# 라운지 마스터
+lounges:
+  ke_prestige_t2:
+    name: 대한항공 프레스티지 라운지
+    terminal: P03
+    location: "T2 4층 서편 (게이트 253 인근)"
+    hours: "05:00~21:30"
+    access: "대한항공/SkyTeam 비즈니스 이상, 모닝캄"
+  ke_first_t2:
+    name: 대한항공 퍼스트 라운지
+    terminal: P03
+    location: "T2 4층 동편 (게이트 245 인근)"
+    hours: "05:00~21:30"
+    access: "대한항공 일등석, 밀리언마일러"
+  oz_business_t1:
+    name: 아시아나 비즈니스 라운지 (동편)
+    terminal: P01
+    location: "T1 4층 동편 (게이트 11 인근)"
+    hours: "06:00~21:00"
+    access: "아시아나/Star Alliance 비즈니스 이상, 다이아몬드"
+  star_t1_concourse:
+    name: Star Alliance 이용 가능 라운지 (탑승동)
+    terminal: P02
+    location: "탑승동 4층 중앙 (게이트 118 인근)"
+    hours: "06:30~22:00"
+    access: "Star Alliance Gold / 비즈니스 이상"
+  skyteam_t1:
+    name: SkyTeam 제휴 라운지 (T1)
+    terminal: P01
+    location: "T1 4층 중앙 (게이트 26 인근)"
+    hours: "06:00~21:30"
+    access: "SkyTeam Elite Plus / 비즈니스 이상"
+  oneworld_t1:
+    name: oneworld 제휴 라운지 (T1)
+    terminal: P01
+    location: "T1 4층 서편 (게이트 41 인근)"
+    hours: "06:00~21:00"
+    access: "oneworld Emerald/Sapphire / 비즈니스 이상"
+  matina_t1:
+    name: 마티나 라운지 (T1 동편)
+    terminal: P01
+    location: "T1 4층 동편 (게이트 8 인근)"
+    hours: "06:00~21:30"
+    access: "PP카드 / 자사 계약"
+  matina_t2:
+    name: 마티나 라운지 (T2)
+    terminal: P03
+    location: "T2 4층 동편 (게이트 231 인근)"
+    hours: "06:00~21:00"
+    access: "PP카드 / 자사 계약"
+
+# 얼라이언스별 기본 이용 가능 라운지
+alliance_lounges:
+  star: [star_t1_concourse, oz_business_t1]
+  skyteam: [skyteam_t1, ke_prestige_t2]
+  oneworld: [oneworld_t1]
+
+# 자사 별도 계약 라운지 (얼라이언스와 무관하게 항상 함께 안내)
+contract_lounges: [matina_t1, matina_t2]

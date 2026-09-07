@@ -1,0 +1,118 @@
+# 인천공항 터미널 동선 설정
+#
+# ⚠️ 아래 좌표(pos)/구역 값은 공개된 터미널 배치를 근거로 한 "초기 기본값"입니다.
+#    실제 의전 운영 전에 현장 기준으로 반드시 검증/보정하세요. (API가 제공하지 않는 정보)
+#
+# pos: 터미널 동편(0) ~ 서편(100) 을 0~100 으로 정규화한 가상 좌표.
+#      도보 소요(분) = |pos 차이| * walk_minutes_per_unit  (+ 고정 가산)
+
+walk_minutes_per_unit: 0.12   # pos 100 차이 ≈ 12분 도보
+
+terminals:
+  P01:
+    name: 제1여객터미널 (T1)
+    short: T1
+    congestion_api: T1          # /statusOfDepartureCongestion
+    # 출국장(보안검색/출국심사 진입구)
+    departure_gates:
+      DG1_E: { label: "1번 출국장 (동)", dg: "1", pos: 2 }
+      DG1_W: { label: "1번 출국장 (서)", dg: "1", pos: 6 }
+      DG2_E: { label: "2번 출국장 (동)", dg: "2", pos: 20 }
+      DG2_W: { label: "2번 출국장 (서) / 스마트패스 전용레인", dg: "2", pos: 24 }
+      DG3_E: { label: "3번 출국장 (동)", dg: "3", pos: 40 }
+      DG3_W: { label: "3번 출국장 (서)", dg: "3", pos: 44 }
+      DG4_E: { label: "4번 출국장 (동)", dg: "4", pos: 58 }
+      DG4_W: { label: "4번 출국장 (서)", dg: "4", pos: 62 }
+      DG5_E: { label: "5번 출국장 (동)", dg: "5", pos: 76 }
+      DG5_W: { label: "5번 출국장 (서)", dg: "5", pos: 80 }
+      DG6_E: { label: "6번 출국장 (동)", dg: "6", pos: 94 }
+      DG6_W: { label: "6번 출국장 (서)", dg: "6", pos: 98 }
+    # 체크인 카운터 블록별 위치
+    checkin_counters:
+      A: 0
+      B: 8
+      C: 17
+      D: 25
+      E: 34
+      F: 42
+      G: 51
+      H: 59
+      J: 68
+      K: 76
+      L: 85
+      M: 100
+    # 탑승구 구간별 위치 / 입국 동선 라벨
+    gate_zones:
+      - range: "1-11"
+        pos: 6
+        immigration: "입국심사장 동편 (Arrival Hall East, 2F)"
+      - range: "12-25"
+        pos: 30
+        immigration: "입국심사장 동편 (Arrival Hall East, 2F)"
+      - range: "26-36"
+        pos: 62
+        immigration: "입국심사장 서편 (Arrival Hall West, 2F)"
+      - range: "37-50"
+        pos: 92
+        immigration: "입국심사장 서편 (Arrival Hall West, 2F)"
+    default_immigration: "입국심사장 (2F)"
+    baggage_floor: "1층 수하물 수취지역"
+
+  P02:
+    name: 탑승동 (Concourse A)
+    short: 탑승동
+    congestion_api: T1          # 탑승동 이용객은 T1 출국장 통과
+    parent: P01                 # 체크인/출국장은 T1 기준, 셔틀트레인 이동
+    transfer_note: "T1 출국장 통과 후 지하 1층 셔틀트레인 탑승 (편도 약 5분, 배차 5분 내외). 여유시간 +20분 확보 권장."
+    extra_minutes: 20
+    departure_gates: {}
+    checkin_counters: {}
+    gate_zones:
+      - range: "101-132"
+        pos: 50
+        immigration: "탑승동 도착 → 셔틀트레인 → T1 입국심사장 (2F)"
+    default_immigration: "T1 입국심사장 (2F)"
+    baggage_floor: "T1 1층 수하물 수취지역"
+
+  P03:
+    name: 제2여객터미널 (T2)
+    short: T2
+    congestion_api: T2          # /statusOfDepartureCongestionT2
+    departure_gates:
+      DG1_A: { label: "1번 출국장 A", dg: "1", pos: 16 }
+      DG1_B: { label: "1번 출국장 B", dg: "1", pos: 22 }
+      DG1_C: { label: "1번 출국장 C", dg: "1", pos: 28 }
+      DG1_D: { label: "1번 출국장 D", dg: "1", pos: 34 }
+      DG2_A: { label: "2번 출국장 A", dg: "2", pos: 66 }
+      DG2_B: { label: "2번 출국장 B", dg: "2", pos: 72 }
+      DG2_C: { label: "2번 출국장 C", dg: "2", pos: 78 }
+      DG2_D: { label: "2번 출국장 D", dg: "2", pos: 84 }
+    checkin_counters:
+      A: 4
+      B: 18
+      C: 32
+      D: 46
+      E: 54
+      F: 68
+      G: 82
+      H: 96
+    gate_zones:
+      - range: "230-249"
+        pos: 25
+        immigration: "T2 입국심사장 동편 (2F)"
+      - range: "250-270"
+        pos: 75
+        immigration: "T2 입국심사장 서편 (2F)"
+    default_immigration: "T2 입국심사장 (2F)"
+    baggage_floor: "1층 수하물 수취지역"
+
+  C01: { name: 화물터미널 남측, short: 화물터미널, cargo: true }
+  C02: { name: 화물터미널 북측, short: 화물터미널, cargo: true }
+  C03: { name: 화물터미널 (3단계), short: 화물터미널, cargo: true }
+
+# 혼잡도 4단계 기준 (제공기관 별첨 기준, 단위: 분)
+congestion_levels:
+  - { name: 원활,    max: 20, emoji: "🟢" }
+  - { name: 보통,    max: 40, emoji: "🟡" }
+  - { name: 혼잡,    max: 60, emoji: "🟠" }
+  - { name: 매우혼잡, max: null, emoji: "🔴" }
