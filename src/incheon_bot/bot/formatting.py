@@ -23,6 +23,15 @@ def _hhmm(flight: Flight) -> str:
     return sched
 
 
+def _immigration(briefing: Briefing) -> str:
+    info = briefing.immigration
+    if info is None:
+        return DASH
+    if info.is_confirmed:
+        return f"<b>출구 {esc(info.exit_code or '')}</b> · {esc(info.hall)}"
+    return f"{esc(info.hall)} <i>(출구 배정 전, 도착 탑승구 기준 추정)</i>"
+
+
 def flight_headline(flight: Flight, routing: RoutingConfig) -> str:
     terminal = routing.terminal(flight.terminal_id)
     term_label = terminal.short if terminal else (flight.terminal_id or DASH)
@@ -99,7 +108,7 @@ def render_briefing(briefing: Briefing, routing: RoutingConfig) -> str:
             "<b>🛬 입국 동선 (IB)</b>",
             f"  1️⃣ 도착 게이트: <b>{_t(flight.gate_number)}</b>"
             + (f" (주기장 {esc(flight.stand_position)})" if flight.stand_position else ""),
-            f"  2️⃣ 입국심사대: <b>{_t(briefing.immigration)}</b>",
+            f"  2️⃣ 입국심사대: {_immigration(briefing)}",
             f"  3️⃣ 수하물 수취대: <b>{_t(flight.carousel)}</b>"
             + (f" · {esc(briefing.baggage_area)}" if briefing.baggage_area else ""),
             f"  4️⃣ 입국장 출구: <b>{_t(flight.exit_number)}</b>",
@@ -186,10 +195,17 @@ HELP_TEXT = """<b>인천공항 의전 정보 봇</b>
 <code>WE501 0908</code> / <code>WE501 내일</code> / <code>WE501 20260908</code>
 <code>/flight WE501 0908</code> — 동일 (명령어 형태)
 
-<b>감시(book)</b>
+<b>감시(book) · 사전 알림</b>
 <code>/book WE501</code> — 게이트·카운터·수취대·현황 변동 자동 알림
+　└ 사전 알림도 함께 시작 (OB: T-4h/-3h/-2h/-1h/-40m · IB: T-90m/-30m/착륙+20m)
+<code>/remind WE501 90 픽업 차량 확인</code> — 90분 전 지정 알림 추가
 <code>/list</code> — 감시 중인 항공편 목록
 <code>/done WE501</code> — 해당 편 감시 종료 (<code>/done all</code> 전체 종료)
+
+<b>메모</b>
+<code>/memo WE501 VIP 3명, 휠체어 1대</code> — 메모 추가
+<code>/memo WE501</code> — 메모 보기 · <code>/memo WE501 삭제</code> — 전체 삭제
+　└ 브리핑과 사전 알림에 함께 표시됩니다
 
 <b>기타</b>
 <code>/congestion T1</code> (또는 <code>T2</code>) — 출국장 실시간 혼잡도 전체
@@ -199,8 +215,77 @@ HELP_TEXT = """<b>인천공항 의전 정보 봇</b>
 
 <b>한글 입력도 가능</b>
 <code>혼잡도 T2</code> · <code>라운지 KE</code> · <code>감시 WE501</code> · <code>완료 WE501</code>
+<code>메모 WE501 VIP 3명</code> · <code>알림 WE501 90 차량 확인</code>
 
 <b>안내</b>
-• IB: 게이트 → 입국심사대 → 수하물 수취대 → 입국장 출구
+• IB: 게이트 → 입국심사대(출구 기준) → 수하물 수취대 → 입국장 출구
 • OB: 체크인 카운터 → 보안심사대(실시간 혼잡도 기반 최적 동선) → 라운지 → 탑승구
 • 운항 정보는 조회일 기준 -3일 ~ +6일까지 제공됩니다."""
+
+
+def render_notes(notes: list, *, inline: bool = False) -> str:
+    """항공편 메모 섹션. inline=True 면 브리핑 하단에 덧붙이는 형태."""
+    if not notes:
+        return ""
+    lines = ["", "<b>📝 메모</b>"]
+    for index, note in enumerate(notes, start=1):
+        stamp = f" <i>({note.created_at:%m/%d %H:%M})</i>" if note.created_at else ""
+        author = f" — {esc(note.author)}" if note.author and not inline else ""
+        lines.append(f"  {index}. {esc(note.text)}{author}{stamp}")
+    return "\n".join(lines)
+
+
+def render_reminder(
+    flight: Flight,
+    title: str,
+    body: str,
+    routing: RoutingConfig,
+    *,
+    extra: str = "",
+    notes: list | None = None,
+) -> str:
+    terminal = routing.terminal(flight.terminal_id)
+    when = "출발" if not flight.is_inbound else "도착"
+    lines = [
+        f"⏰ <b>{esc(title)}</b>",
+        f"<b>{esc(flight.flight_id)}</b> · {'IB 도착' if flight.is_inbound else 'OB 출국'} · "
+        f"{esc(terminal.short if terminal else flight.terminal_id or '')} · {when} {_hhmm(flight)}",
+    ]
+    if body:
+        lines += ["", esc(body)]
+    if flight.is_inbound:
+        detail = [
+            f"도착 게이트 {_t(flight.gate_number)}",
+            f"출구 {_t(flight.exit_number)}",
+            f"수취대 {_t(flight.carousel)}",
+        ]
+    else:
+        detail = [f"카운터 {_t(flight.checkin_range)}", f"탑승구 {_t(flight.gate_number)}"]
+    lines.append("· " + " | ".join(detail))
+    if flight.remark:
+        lines.append(f"{status_emoji(flight.remark)} 현황: <b>{esc(flight.remark)}</b>")
+    if extra:
+        lines += ["", extra]
+    note_block = render_notes(notes or [], inline=True)
+    if note_block:
+        lines.append(note_block)
+    return "\n".join(lines)
+
+
+def render_reminder_list(flight_no: str, reminders: list) -> str:
+    if not reminders:
+        return (
+            f"<b>{esc(flight_no)}</b> 에 등록된 사용자 지정 알림이 없습니다.\n"
+            "예) <code>/remind WE501 90 픽업 차량 배차 확인</code>"
+        )
+    lines = [f"<b>⏰ {esc(flight_no)} 사용자 지정 알림</b>", ""]
+    for reminder in reminders:
+        offset = (
+            f"T-{reminder.minutes_before}분"
+            if reminder.minutes_before >= 0
+            else f"T+{abs(reminder.minutes_before)}분"
+        )
+        mark = "✅ 발송됨" if reminder.sent else "대기"
+        lines.append(f"• {offset} — {esc(reminder.text)} <i>({mark})</i>")
+    lines += ["", "전체 취소: <code>/remind 편명 취소</code>"]
+    return "\n".join(lines)

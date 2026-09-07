@@ -65,10 +65,29 @@ def test_t2_uses_its_own_api(routing):
     assert set(terminal.departure_gates) >= {"DG1_A", "DG2_D"}
 
 
-def test_immigration_by_arrival_gate(routing):
-    assert "동편" in routing.immigration_for("P01", "8")
-    assert "서편" in routing.immigration_for("P01", "42")
-    assert "셔틀트레인" in routing.immigration_for("P02", "118")
+def test_immigration_prefers_exit_number(routing):
+    """입국심사대는 API 의 출구(exitNumber) 로 확정 안내한다."""
+    info = routing.immigration_for("P01", gate_number="42", exit_number="B")
+    assert info.is_confirmed and info.exit_code == "B"
+    assert "동편" in info.hall                    # 출구 B 는 동편 — 탑승구(42, 서편)보다 출구가 우선
+    assert info.render() == "출구 B · 동편 입국심사장 (2F)"
+
+    t2 = routing.immigration_for("P03", exit_number="출구 A")
+    assert t2.exit_code == "A" and "T2 동편" in t2.hall
+
+
+def test_immigration_falls_back_to_gate_before_exit_is_assigned(routing):
+    info = routing.immigration_for("P01", gate_number="8")
+    assert info.source == "gate" and info.exit_code is None
+    assert "동편" in info.hall and "추정" in info.render()
+    assert "서편" in routing.immigration_for("P01", gate_number="42").hall
+    assert "셔틀트레인" in routing.immigration_for("P02", gate_number="118").hall
+
+
+def test_unknown_exit_code_is_still_reported(routing):
+    """설정에 없는 출구라도 출구 자체는 확정 정보이므로 그대로 안내한다."""
+    info = routing.immigration_for("P01", exit_number="Z")
+    assert info.is_confirmed and info.exit_code == "Z"
 
 
 def test_status_emoji_and_terminal_status():

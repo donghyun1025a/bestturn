@@ -38,6 +38,7 @@ class Terminal:
     congestion_api: str | None
     departure_gates: dict[str, DepartureGate]
     checkin_counters: dict[str, float]
+    arrival_exits: dict[str, str]
     gate_zones: tuple[GateZone, ...]
     default_immigration: str
     baggage_floor: str
@@ -45,6 +46,25 @@ class Terminal:
     extra_minutes: int
     parent: str | None
     cargo: bool
+
+
+@dataclass(frozen=True)
+class ImmigrationInfo:
+    """입국심사대 안내 문구와 그 근거."""
+
+    hall: str
+    exit_code: str | None
+    source: str  # "exit" | "gate" | "default" | "unknown"
+
+    @property
+    def is_confirmed(self) -> bool:
+        """출구가 배정되어 확정된 안내인지."""
+        return self.source == "exit"
+
+    def render(self) -> str:
+        if self.exit_code:
+            return f"출구 {self.exit_code} · {self.hall}"
+        return f"{self.hall} (출구 배정 전, 도착 탑승구 기준 추정)"
 
 
 @dataclass(frozen=True)
@@ -74,6 +94,14 @@ def _parse_range(text: str) -> tuple[int, int]:
     if not nums:
         return (0, 0)
     return (nums[0], nums[-1] if len(nums) > 1 else nums[0])
+
+
+def exit_letter(exit_number: str | None) -> str | None:
+    """'B', '출구 B', 'b' → 'B'. 숫자형 출구(예: '2')도 그대로 사용."""
+    if not exit_number:
+        return None
+    text = re.sub(r"[^A-Za-z0-9]", "", exit_number).upper()
+    return text or None
 
 
 def gate_to_int(gate_number: str | None) -> int | None:
@@ -110,6 +138,7 @@ class RoutingConfig:
                 congestion_api=raw.get("congestion_api"),
                 departure_gates=gates,
                 checkin_counters={k.upper(): float(v) for k, v in (raw.get("checkin_counters") or {}).items()},
+                arrival_exits={str(k).upper(): str(v) for k, v in (raw.get("arrival_exits") or {}).items()},
                 gate_zones=tuple(zones),
                 default_immigration=raw.get("default_immigration", "입국심사장"),
                 baggage_floor=raw.get("baggage_floor", "1층 수하물 수취지역"),
@@ -156,12 +185,32 @@ class RoutingConfig:
                 return zone
         return None
 
-    def immigration_for(self, terminal_code: str | None, gate_number: str | None) -> str:
+    def immigration_for(
+        self,
+        terminal_code: str | None,
+        gate_number: str | None = None,
+        exit_number: str | None = None,
+    ) -> ImmigrationInfo:
+        """입국심사대 안내.
+
+        인천공항 입국장은 출구(A/B/…) 로 구분되므로 API 의 exitNumber 를 1순위로 사용하고,
+        출구가 아직 배정되지 않은 경우에만 도착 탑승구 구역으로 추정합니다.
+        """
         term = self.terminal(terminal_code)
         if term is None:
-            return "입국심사장"
+            return ImmigrationInfo("입국심사장", None, "unknown")
+
+        exit_key = exit_letter(exit_number)
+        if exit_key:
+            hall = term.arrival_exits.get(exit_key)
+            if hall:
+                return ImmigrationInfo(hall, exit_key, "exit")
+            # 설정에 없는 출구라도 출구 자체는 확정 정보이므로 그대로 안내합니다.
+            return ImmigrationInfo(term.default_immigration, exit_key, "exit")
+
         zone = self.zone_for_gate(term, gate_number)
-        return zone.immigration if zone and zone.immigration else term.default_immigration
+        hall = zone.immigration if zone and zone.immigration else term.default_immigration
+        return ImmigrationInfo(hall, None, "gate" if zone else "default")
 
     def origin_pos(
         self, terminal_code: str | None, gate_number: str | None, checkin_range: str | None

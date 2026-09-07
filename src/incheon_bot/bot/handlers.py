@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -19,7 +20,7 @@ from telegram.ext import (
 )
 
 from ..api.client import ApiError
-from ..api.models import Flight
+from ..api.models import Flight, normalize_flight_no
 from ..domain.query import QueryError, looks_like_flight_query, parse_query
 from ..domain.status import adaptive_interval_minutes
 from ..service import BriefingService
@@ -82,6 +83,18 @@ async def _deny(update: Update) -> None:
             "이 봇은 등록된 사용자만 사용할 수 있습니다. 관리자에게 사용자 ID 등록을 요청하세요.\n"
             f"내 사용자 ID: {update.effective_user.id if update.effective_user else '알 수 없음'}"
         )
+
+
+def _notes_for(bot_ctx: BotContext, chat_id: int, flight: Flight, search_date: str) -> list:
+    return bot_ctx.store.notes(chat_id, normalize_flight_no(flight.flight_id), search_date)
+
+
+async def _render_with_notes(
+    bot_ctx: BotContext, chat_id: int, flight: Flight, search_date: str
+) -> str:
+    briefing = await bot_ctx.service.build(flight)
+    text = fmt.render_briefing(briefing, bot_ctx.service.routing)
+    return text + fmt.render_notes(_notes_for(bot_ctx, chat_id, flight, search_date))
 
 
 def _briefing_keyboard(token: str, index: int) -> InlineKeyboardMarkup:
@@ -160,9 +173,8 @@ async def _resolve_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await _do_book(update, context, flight, query.search_date), parse_mode=ParseMode.HTML
         )
         return
-    briefing = await bot_ctx.service.build(flight)
     await placeholder.edit_text(
-        fmt.render_briefing(briefing, bot_ctx.service.routing),
+        await _render_with_notes(bot_ctx, update.effective_chat.id, flight, query.search_date),
         parse_mode=ParseMode.HTML,
         reply_markup=_briefing_keyboard(token, 0),
     )
@@ -195,6 +207,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.args = text.split()[1:]
         await cmd_done(update, context)
         return
+    if head in {"메모", "노트"} and len(text.split()) > 1:
+        context.args = text.split()[1:]
+        await cmd_memo(update, context)
+        return
+    if head in {"알림", "리마인드"} and len(text.split()) > 1:
+        context.args = text.split()[1:]
+        await cmd_remind(update, context)
+        return
     if head in {"예약", "감시"} and len(text.split()) > 1:
         await _resolve_and_reply(update, context, " ".join(text.split()[1:]), book=True)
         return
@@ -210,6 +230,7 @@ async def _do_book(update: Update, context: ContextTypes.DEFAULT_TYPE, flight: F
     user = update.effective_user
     snapshot = {k: v for k, v in flight.watched_fields().items()}
     interval = adaptive_interval_minutes(flight)
+    already_passed = bot_ctx.service.reminders.initial_sent_keys(flight)
     label = f"{'IB' if flight.is_inbound else 'OB'} {flight.best_dt:%m/%d %H:%M}" if flight.best_dt else flight.direction
     booking, created = bot_ctx.store.upsert(
         chat_id=chat.id,
@@ -222,6 +243,7 @@ async def _do_book(update: Update, context: ContextTypes.DEFAULT_TYPE, flight: F
         label=label,
         snapshot=snapshot,
         next_check_at=datetime.now() + timedelta(minutes=interval),
+        sent_reminders=already_passed,
     )
     verb = "등록" if created else "갱신"
     watched = (
@@ -229,11 +251,18 @@ async def _do_book(update: Update, context: ContextTypes.DEFAULT_TYPE, flight: F
         if flight.is_inbound
         else "체크인 카운터 · 탑승구 · 현황"
     )
-    return (
-        f"📌 <b>{esc(flight.flight_id)}</b> ({esc(label)}) 감시를 {verb}했습니다.\n"
-        f"변동 감시 항목: {watched} · 시각 변경\n"
-        f"다음 확인까지 약 {interval}분 · 종료: <code>/done {esc(flight.flight_id)}</code>"
-    )
+    rules = bot_ctx.service.reminders.rules_for(flight.direction)
+    pending = [r for r in rules if r.key not in already_passed]
+    schedule = ", ".join(r.offset_label for r in pending) if pending else "없음(시각 경과)"
+    notes = _notes_for(bot_ctx, chat.id, flight, search_date)
+    lines = [
+        f"📌 <b>{esc(flight.flight_id)}</b> ({esc(label)}) 감시를 {verb}했습니다.",
+        f"변동 감시 항목: {watched} · 시각 변경",
+        f"⏰ 사전 알림: {esc(schedule)}",
+        f"다음 확인까지 약 {interval}분 · 종료: <code>/done {esc(flight.flight_id)}</code>",
+    ]
+    text = "\n".join(lines) + fmt.render_notes(notes)
+    return text
 
 
 async def cmd_book(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -265,8 +294,6 @@ async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         count = bot_ctx.store.close_all(chat_id)
         await update.effective_message.reply_text(f"✅ 감시 중이던 {count}건을 모두 종료했습니다.")
         return
-    from ..api.models import normalize_flight_no
-
     wanted = normalize_flight_no(args[0])
     matches = [b for b in bot_ctx.store.list_active(chat_id) if normalize_flight_no(b.flight_no) == wanted]
     if not matches:
@@ -399,6 +426,159 @@ async def cmd_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+# ----------------------------------------------------------------- 메모 / 알림
+CLEAR_WORDS = {"삭제", "취소", "clear", "delete", "reset", "전체삭제"}
+
+
+def _split_flight_arg(args: list[str]) -> tuple[str, list[str]]:
+    """'/memo WE501 0908 내용...' 처럼 편명(+날짜) 뒤에 자유 텍스트가 오는 입력을 분리."""
+    if not args:
+        return "", []
+    head = [args[0]]
+    rest = args[1:]
+    # 두 번째 토큰이 날짜처럼 보이면 편명 파싱에 함께 넘깁니다.
+    if rest and re.fullmatch(r"\d{4}|\d{8}|\d{4}-\d{2}-\d{2}", rest[0]):
+        head.append(rest[0])
+        rest = rest[1:]
+    elif rest and rest[0] in {"내일", "모레", "오늘", "어제"}:
+        head.append(rest[0])
+        rest = rest[1:]
+    return " ".join(head), rest
+
+
+async def cmd_memo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """메모 추가/조회/삭제. 항공편에 붙는 자유 메모로, book 여부와 무관하게 유지됩니다."""
+    bot_ctx = _ctx(context)
+    if not _authorized(update, bot_ctx):
+        await _deny(update)
+        return
+    message = update.effective_message
+    args = context.args or []
+    if not args:
+        await message.reply_text(
+            "사용법\n"
+            "<code>/memo WE501 VIP 3명, 휠체어 1대</code> — 메모 추가\n"
+            "<code>/memo WE501</code> — 메모 보기\n"
+            "<code>/memo WE501 삭제</code> — 전체 삭제 · <code>/memo WE501 삭제 2</code> — 2번 삭제",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    flight_arg, rest = _split_flight_arg(args)
+    try:
+        query = parse_query(flight_arg)
+    except QueryError as exc:
+        await message.reply_text(str(exc), parse_mode=ParseMode.HTML)
+        return
+
+    chat_id = update.effective_chat.id
+    flight_no, search_date = query.flight_no, query.search_date
+
+    if rest and rest[0].lower() in CLEAR_WORDS:
+        if len(rest) > 1 and rest[1].isdigit():
+            removed = bot_ctx.store.delete_note(chat_id, flight_no, search_date, int(rest[1]))
+            if removed is None:
+                await message.reply_text("해당 번호의 메모가 없습니다. <code>/memo 편명</code> 으로 확인하세요.", parse_mode=ParseMode.HTML)
+                return
+            await message.reply_text(f"🗑 메모를 삭제했습니다: {esc(removed.text)}", parse_mode=ParseMode.HTML)
+            return
+        count = bot_ctx.store.clear_notes(chat_id, flight_no, search_date)
+        await message.reply_text(f"🗑 <b>{esc(flight_no)}</b> 메모 {count}건을 삭제했습니다.", parse_mode=ParseMode.HTML)
+        return
+
+    if rest:
+        text = " ".join(rest).strip()
+        user = update.effective_user
+        author = (user.full_name if user else None) or None
+        bot_ctx.store.add_note(
+            chat_id=chat_id, flight_no=flight_no, search_date=search_date, text=text, author=author
+        )
+        notes = bot_ctx.store.notes(chat_id, flight_no, search_date)
+        await message.reply_text(
+            f"📝 <b>{esc(flight_no)}</b> ({query.day:%m/%d}) 메모를 저장했습니다."
+            + fmt.render_notes(notes),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    notes = bot_ctx.store.notes(chat_id, flight_no, search_date)
+    if not notes:
+        await message.reply_text(
+            f"<b>{esc(flight_no)}</b> ({query.day:%m/%d}) 에 저장된 메모가 없습니다.\n"
+            "<code>/memo {0} 내용</code> 으로 추가하세요.".format(esc(flight_no)),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    await message.reply_text(
+        f"<b>{esc(flight_no)}</b> ({query.day:%m/%d})" + fmt.render_notes(notes), parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """사용자 지정 사전 알림. 지연으로 시각이 바뀌면 함께 밀립니다."""
+    bot_ctx = _ctx(context)
+    if not _authorized(update, bot_ctx):
+        await _deny(update)
+        return
+    message = update.effective_message
+    args = context.args or []
+    if not args:
+        await message.reply_text(
+            "사용법\n"
+            "<code>/remind WE501 90 픽업 차량 배차 확인</code> — 출발/도착 90분 전 알림\n"
+            "<code>/remind WE501</code> — 등록된 알림 보기 · <code>/remind WE501 취소</code> — 전체 취소\n"
+            "<i>기본 사전 알림(T-4h/T-3h/T-2h/T-1h/T-40m 등)은 /book 시 자동 적용됩니다.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    flight_arg, rest = _split_flight_arg(args)
+    try:
+        query = parse_query(flight_arg)
+    except QueryError as exc:
+        await message.reply_text(str(exc), parse_mode=ParseMode.HTML)
+        return
+    chat_id = update.effective_chat.id
+    flight_no, search_date = query.flight_no, query.search_date
+
+    if rest and rest[0].lower() in CLEAR_WORDS:
+        count = bot_ctx.store.clear_reminders(chat_id, flight_no, search_date)
+        await message.reply_text(f"🗑 <b>{esc(flight_no)}</b> 사용자 지정 알림 {count}건을 취소했습니다.", parse_mode=ParseMode.HTML)
+        return
+
+    if not rest:
+        await message.reply_text(
+            fmt.render_reminder_list(flight_no, bot_ctx.store.reminders(chat_id, flight_no, search_date)),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    offset_token = rest[0]
+    match = re.fullmatch(r"(?i)([+-]?\d{1,4})\s*(분|m|min)?", offset_token)
+    if not match:
+        await message.reply_text(
+            "몇 분 전인지 숫자로 입력해 주세요. 예) <code>/remind WE501 90 픽업 차량 확인</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    minutes = int(match.group(1))
+    if not -720 <= minutes <= 1440:
+        await message.reply_text("알림 시점은 -720분(도착 후 12시간) ~ 1440분(24시간 전) 범위로 지정해 주세요.")
+        return
+    text = " ".join(rest[1:]).strip() or "의전 담당자 지정 알림"
+    reminder = bot_ctx.store.add_reminder(
+        chat_id=chat_id, flight_no=flight_no, search_date=search_date,
+        minutes_before=minutes, text=text,
+    )
+    offset = f"T-{minutes}분" if minutes >= 0 else f"T+{abs(minutes)}분"
+    booked = bot_ctx.store.find(chat_id, flight_no)
+    tail = "" if booked else f"\n⚠️ <code>/book {esc(flight_no)}</code> 로 감시를 등록해야 알림이 발송됩니다."
+    await message.reply_text(
+        f"⏰ <b>{esc(flight_no)}</b> {esc(offset)} 알림을 등록했습니다: {esc(reminder.text)}{tail}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 # -------------------------------------------------------------------- 콜백버튼
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_ctx = _ctx(context)
@@ -438,8 +618,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         flight = refreshed or flight
         flights[index] = flight
 
-    briefing = await bot_ctx.service.build(flight)
-    text = fmt.render_briefing(briefing, bot_ctx.service.routing)
+    text = await _render_with_notes(bot_ctx, update.effective_chat.id, flight, search_date)
     if action == "rf":
         text += f"\n<i>업데이트 {datetime.now():%H:%M:%S}</i>"
     try:
@@ -459,6 +638,8 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler(["list", "bookings"], cmd_list))
     app.add_handler(CommandHandler(["congestion", "cong"], cmd_congestion))
     app.add_handler(CommandHandler("lounge", cmd_lounge))
+    app.add_handler(CommandHandler(["memo", "note"], cmd_memo))
+    app.add_handler(CommandHandler(["remind", "reminder"], cmd_remind))
     app.add_handler(CommandHandler("reload", cmd_reload))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("cargo", cmd_cargo))

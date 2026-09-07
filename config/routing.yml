@@ -41,20 +41,29 @@ terminals:
       K: 76
       L: 85
       M: 100
-    # 탑승구 구간별 위치 / 입국 동선 라벨
+    # 입국심사대는 API 의 출구(exitNumber) 를 기준으로 안내합니다.
+    # 출구가 아직 배정되지 않은 경우에만 아래 gate_zones 의 값으로 대체합니다.
+    arrival_exits:
+      A: "동편 입국심사장 (2F)"
+      B: "동편 입국심사장 (2F)"
+      C: "동편 입국심사장 (2F)"
+      D: "서편 입국심사장 (2F)"
+      E: "서편 입국심사장 (2F)"
+      F: "서편 입국심사장 (2F)"
+    # 탑승구 구간별 위치 / 출구 미배정 시 입국심사장 추정
     gate_zones:
       - range: "1-11"
         pos: 6
-        immigration: "입국심사장 동편 (Arrival Hall East, 2F)"
+        immigration: "동편 입국심사장 (2F)"
       - range: "12-25"
         pos: 30
-        immigration: "입국심사장 동편 (Arrival Hall East, 2F)"
+        immigration: "동편 입국심사장 (2F)"
       - range: "26-36"
         pos: 62
-        immigration: "입국심사장 서편 (Arrival Hall West, 2F)"
+        immigration: "서편 입국심사장 (2F)"
       - range: "37-50"
         pos: 92
-        immigration: "입국심사장 서편 (Arrival Hall West, 2F)"
+        immigration: "서편 입국심사장 (2F)"
     default_immigration: "입국심사장 (2F)"
     baggage_floor: "1층 수하물 수취지역"
 
@@ -67,6 +76,13 @@ terminals:
     extra_minutes: 20
     departure_gates: {}
     checkin_counters: {}
+    arrival_exits:
+      A: "T1 동편 입국심사장 (2F)"
+      B: "T1 동편 입국심사장 (2F)"
+      C: "T1 동편 입국심사장 (2F)"
+      D: "T1 서편 입국심사장 (2F)"
+      E: "T1 서편 입국심사장 (2F)"
+      F: "T1 서편 입국심사장 (2F)"
     gate_zones:
       - range: "101-132"
         pos: 50
@@ -96,13 +112,16 @@ terminals:
       F: 68
       G: 82
       H: 96
+    arrival_exits:
+      A: "T2 동편 입국심사장 (2F)"
+      B: "T2 서편 입국심사장 (2F)"
     gate_zones:
       - range: "230-249"
         pos: 25
-        immigration: "T2 입국심사장 동편 (2F)"
+        immigration: "T2 동편 입국심사장 (2F)"
       - range: "250-270"
         pos: 75
-        immigration: "T2 입국심사장 서편 (2F)"
+        immigration: "T2 서편 입국심사장 (2F)"
     default_immigration: "T2 입국심사장 (2F)"
     baggage_floor: "1층 수하물 수취지역"
 

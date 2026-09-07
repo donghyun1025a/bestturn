@@ -60,8 +60,11 @@ async def test_inbound_briefing_lists_arrival_chain():
     briefing = await service.build(flight)
 
     assert briefing.is_inbound is True
-    assert "T2 입국심사장" in briefing.immigration
+    # 출구 B 가 배정되어 있으므로 입국심사대는 출구 기준으로 확정 안내된다
+    assert briefing.immigration.is_confirmed and briefing.immigration.exit_code == "B"
+    assert "T2 서편 입국심사장" in briefing.immigration.hall
     text = fmt.render_briefing(briefing, service.routing)
+    assert "입국심사대: <b>출구 B</b> · T2 서편 입국심사장" in text
     for expected in ["IB 입국", "도착 게이트", "244", "입국심사대", "수하물 수취대", "7", "입국장 출구", "B"]:
         assert expected in text, expected
     assert "라운지" not in text          # 입국편에는 라운지/보안심사 섹션 없음
@@ -76,6 +79,9 @@ async def test_inbound_pending_fields_produce_warnings():
     joined = " ".join(briefing.warnings)
     assert "수하물 수취대" in joined and "출구" in joined
     assert "/book" in joined
+    # 출구 미배정 시 입국심사대는 추정치임을 명시
+    assert briefing.immigration.is_confirmed is False
+    assert "추정" in fmt.render_briefing(briefing, service.routing)
     await service.client.aclose()
 
 

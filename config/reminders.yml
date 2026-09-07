@@ -1,0 +1,48 @@
+# 사전 알림(자동) 설정
+#
+# book 으로 등록한 항공편에 대해 출발/도착 예정시각을 기준으로 자동 발송합니다.
+# minutes_before 가 양수면 "N분 전", 음수면 "N분 후" 입니다.
+# 지연으로 시각이 바뀌면 아직 보내지 않은 알림은 자동으로 새 시각 기준으로 재계산됩니다.
+
+# 등록 시점에 이미 지나버린 알림을 뒤늦게 쏟아내지 않도록 하는 유예시간(분).
+# 이 시간보다 더 지난 알림은 보내지 않고 발송 완료로 표시합니다.
+catch_up_minutes: 20
+
+# 출국편 (OB)
+outbound:
+  - key: checkin
+    minutes_before: 240
+    title: "체크인 카운터 확인 (T-4h)"
+    body: "카운터 배정 여부를 확인하고 고객 안내를 준비하세요."
+  - key: meet
+    minutes_before: 180
+    title: "고객 미팅 / 공항 도착 (T-3h)"
+    body: "국제선 권장 도착 시간입니다. 미팅 포인트와 수하물을 확인하세요."
+  - key: security
+    minutes_before: 120
+    title: "보안심사 진입 권장 (T-2h)"
+    body: "현재 혼잡도 기준 추천 출국장입니다."
+    include_route: true          # 실시간 혼잡도 기반 추천 출국장 동봉
+  - key: gate
+    minutes_before: 60
+    title: "탑승구 이동 (T-1h)"
+    body: "탑승구를 최종 확인하고 라운지에서 이동을 시작하세요."
+  - key: boarding
+    minutes_before: 40
+    title: "탑승 시작 예정 (T-40m)"
+    body: "탑승 개시 시각입니다. 게이트 도착 여부를 확인하세요."
+
+# 입국편 (IB)
+inbound:
+  - key: prepare
+    minutes_before: 90
+    title: "입국 의전 준비 (T-90m)"
+    body: "미팅 보드와 차량 배차를 확인하세요."
+  - key: landing
+    minutes_before: 30
+    title: "착륙 임박 (T-30m)"
+    body: "도착 게이트와 입국장 출구를 최종 확인하세요."
+  - key: arrival_hall
+    minutes_before: -20
+    title: "입국장 대기 (착륙 +20m)"
+    body: "입국심사·수하물 수취 진행 중입니다. 입국장 출구에서 대기하세요."

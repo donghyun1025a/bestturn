@@ -10,7 +10,9 @@ from telegram.ext import ContextTypes
 
 from .api.client import ApiError, BudgetExceeded
 from .bot import formatting as fmt
+from .domain.reminders import custom_reminder_due
 from .domain.status import adaptive_interval_minutes, diff_flights, should_stop_watching
+from .api.models import normalize_flight_no
 from .storage.db import Booking
 
 log = logging.getLogger(__name__)
@@ -57,6 +59,9 @@ async def _process(context: ContextTypes.DEFAULT_TYPE, bot_ctx, booking: Booking
     changes = diff_flights(booking.snapshot, current)
     interval = adaptive_interval_minutes(flight)
     next_check = datetime.now() + timedelta(minutes=interval)
+    notes = store.notes(booking.chat_id, normalize_flight_no(booking.flight_no), booking.search_date)
+
+    await _fire_reminders(context, bot_ctx, booking, flight, notes)
 
     if changes:
         text = fmt.render_booking_update(flight, changes, service.routing)
@@ -76,6 +81,51 @@ async def _process(context: ContextTypes.DEFAULT_TYPE, bot_ctx, booking: Booking
             booking,
             f"✅ <b>{flight.flight_id}</b> 운항이 종료되어 감시를 자동 종료했습니다. (최종 현황: {flight.remark or '-'})",
         )
+
+
+async def _fire_reminders(context, bot_ctx, booking: Booking, flight, notes: list) -> None:
+    """설정 기반 사전 알림 + 사용자 지정 알림 발송.
+
+    지연으로 예정시각이 바뀌면 아직 보내지 않은 알림은 새 시각 기준으로 자동 재계산됩니다.
+    """
+    service = bot_ctx.service
+    store = bot_ctx.store
+
+    due, expired = service.reminders.evaluate(flight, booking.sent_reminders)
+    for reminder in due:
+        extra = ""
+        if reminder.include_route and not flight.is_inbound:
+            briefing = await service.build(flight)
+            best = briefing.best_route
+            if best is not None:
+                extra = fmt._route_line(best, service.routing, marker="🚦 추천 출국장: ")
+        await _send(
+            context,
+            booking,
+            fmt.render_reminder(flight, reminder.title, reminder.body, service.routing, extra=extra, notes=notes),
+        )
+    if due or expired:
+        store.mark_reminders_sent(booking.id, [r.key for r in due] + expired)
+
+    catch_up = service.reminders.catch_up_minutes
+    for custom in store.reminders(
+        booking.chat_id, normalize_flight_no(booking.flight_no), booking.search_date, pending_only=True
+    ):
+        if not custom_reminder_due(custom.minutes_before, flight, catch_up_minutes=catch_up):
+            # 시기를 완전히 놓친 알림은 다시 울리지 않도록 발송 완료 처리
+            reference = flight.best_dt
+            if reference is not None and datetime.now() > reference - timedelta(
+                minutes=custom.minutes_before
+            ) + timedelta(minutes=catch_up):
+                store.mark_reminder_sent(custom.id)
+            continue
+        offset = f"T-{custom.minutes_before}분" if custom.minutes_before >= 0 else f"T+{abs(custom.minutes_before)}분"
+        await _send(
+            context,
+            booking,
+            fmt.render_reminder(flight, f"지정 알림 ({offset})", custom.text, service.routing, notes=notes),
+        )
+        store.mark_reminder_sent(custom.id)
 
 
 def _stub_flight(booking: Booking):

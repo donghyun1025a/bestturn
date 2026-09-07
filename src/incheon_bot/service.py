@@ -8,7 +8,8 @@ from pathlib import Path
 from .api.client import ApiError, IncheonAirportClient
 from .api.models import Congestion, Flight
 from .domain.lounges import LoungeConfig, LoungeSuggestion
-from .domain.routing import RouteOption, RoutingConfig, Terminal
+from .domain.reminders import ReminderConfig
+from .domain.routing import ImmigrationInfo, RouteOption, RoutingConfig, Terminal
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class Briefing:
     route_origin: str = ""
     lounges: LoungeSuggestion | None = None
     # IB 전용
-    immigration: str | None = None
+    immigration: ImmigrationInfo | None = None
     baggage_area: str | None = None
     transfer_note: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -62,10 +63,12 @@ class BriefingService:
         self.config_dir = Path(config_dir)
         self.routing = RoutingConfig(self.config_dir / "routing.yml")
         self.lounges = LoungeConfig(self.config_dir / "lounges.yml")
+        self.reminders = ReminderConfig(self.config_dir / "reminders.yml")
 
     def reload_config(self) -> None:
         self.routing.reload()
         self.lounges.reload()
+        self.reminders.reload()
 
     async def search(self, flight_no: str, search_date: str) -> list[Flight]:
         flights = await self.client.find_flight(flight_no, search_date)
@@ -93,12 +96,17 @@ class BriefingService:
             briefing.transfer_note = terminal.transfer_note
 
         if flight.is_inbound:
-            briefing.immigration = self.routing.immigration_for(flight.terminal_id, flight.gate_number)
+            briefing.immigration = self.routing.immigration_for(
+                flight.terminal_id, flight.gate_number, flight.exit_number
+            )
             briefing.baggage_area = terminal.baggage_floor if terminal else None
             if not flight.carousel:
                 briefing.warnings.append("수하물 수취대는 착륙 전후에 확정됩니다. /book 으로 자동 알림을 받으세요.")
             if not flight.exit_number:
-                briefing.warnings.append("입국장 출구 번호가 아직 배정되지 않았습니다.")
+                briefing.warnings.append(
+                    "입국장 출구가 아직 배정되지 않아 입국심사대는 도착 탑승구 기준 추정입니다. "
+                    "/book 으로 확정 시 알림을 받으세요."
+                )
             return briefing
 
         congestion, warning = await self.congestion_for(flight.terminal_id)

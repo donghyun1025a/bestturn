@@ -166,3 +166,100 @@ async def test_budget_exhaustion_defers_the_batch(tmp_path):
     assert bot.sent == []
     assert store.list_active(100)[0].next_check_at > datetime.now() + timedelta(minutes=20)
     await client.aclose()
+
+
+async def test_pre_alert_is_sent_with_memo_and_route(tmp_path, monkeypatch):
+    """T-2h 사전 알림에는 추천 출국장과 해당 편 메모가 함께 나간다."""
+    import incheon_bot.domain.reminders as reminders_module
+
+    row = departure_row(scheduleDateTime="202609071800", estimatedDateTime="202609071800")
+
+    def handler(request):
+        if "Congestion" in str(request.url):
+            return httpx.Response(200, json=envelope([congestion_row("DG1_W", 7), congestion_row("DG6_E", 50)]))
+        return httpx.Response(200, json=envelope([row] if "Departures" in str(request.url) else []))
+
+    context, bot_ctx, bot = make_context(tmp_path, handler)
+    flight = Flight.from_raw(row, "OB")
+    booking = book(bot_ctx.store, flight)
+    bot_ctx.store.add_note(
+        chat_id=100, flight_no="WE501", search_date="20260907", text="VIP 3명 · 휠체어 1대", author="김의전"
+    )
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 7, 16, 5)
+
+    monkeypatch.setattr(reminders_module, "datetime", FrozenDatetime)
+    await watch_tick(context)
+
+    alerts = [t for _, t in bot.sent if "⏰" in t]
+    assert len(alerts) == 1
+    text = alerts[0]
+    assert "보안심사 진입 권장" in text
+    assert "추천 출국장" in text and "1번 출국장 (서)" in text
+    assert "VIP 3명 · 휠체어 1대" in text          # 메모 동봉
+    assert "카운터 A-B" in text and "탑승구 11" in text
+
+    # 같은 알림이 다음 주기에 다시 나가지 않는다
+    assert bot_ctx.store.list_active(100)[0].sent_reminders == ["checkin", "meet", "security"]
+    bot.sent.clear()
+    bot_ctx.store.reschedule(booking.id, datetime.now() - timedelta(minutes=1))
+    bot_ctx.service.client._cache.clear()
+    await watch_tick(context)
+    assert [t for _, t in bot.sent if "⏰" in t] == []
+    await bot_ctx.service.client.aclose()
+
+
+async def test_custom_reminder_fires_once(tmp_path, monkeypatch):
+    import incheon_bot.domain.reminders as reminders_module
+    import incheon_bot.watcher as watcher_module
+
+    row = departure_row(scheduleDateTime="202609071800", estimatedDateTime="202609071800")
+
+    def handler(request):
+        if "Congestion" in str(request.url):
+            return httpx.Response(200, json=envelope([congestion_row("DG1_W", 7)]))
+        return httpx.Response(200, json=envelope([row] if "Departures" in str(request.url) else []))
+
+    context, bot_ctx, bot = make_context(tmp_path, handler)
+    flight = Flight.from_raw(row, "OB")
+    booking = book(bot_ctx.store, flight)
+    bot_ctx.store.mark_reminders_sent(booking.id, ["checkin", "meet", "security", "gate", "boarding"])
+    bot_ctx.store.add_reminder(
+        chat_id=100, flight_no="WE501", search_date="20260907", minutes_before=90, text="픽업 차량 배차 확인"
+    )
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 7, 16, 35)
+
+    monkeypatch.setattr(reminders_module, "datetime", FrozenDatetime)
+    monkeypatch.setattr(watcher_module, "datetime", FrozenDatetime)
+    await watch_tick(context)
+
+    alerts = [t for _, t in bot.sent if "픽업 차량 배차 확인" in t]
+    assert len(alerts) == 1 and "지정 알림 (T-90분)" in alerts[0]
+    assert bot_ctx.store.reminders(100, "WE501", "20260907", pending_only=True) == []
+    await bot_ctx.service.client.aclose()
+
+
+async def test_exit_assignment_notifies_inbound(tmp_path):
+    """입국심사대의 근거가 되는 출구가 배정되면 알림이 나간다."""
+    state = {"row": arrival_row(exitNumber="-", carousel="-", remark="접근중")}
+
+    def handler(request):
+        return httpx.Response(200, json=envelope([state["row"]] if "Arrivals" in str(request.url) else []))
+
+    context, bot_ctx, bot = make_context(tmp_path, handler)
+    book(bot_ctx.store, Flight.from_raw(state["row"], "IB"))
+
+    state["row"] = arrival_row(exitNumber="A", carousel="12", remark="착륙")
+    bot_ctx.service.client._cache.clear()
+    await watch_tick(context)
+
+    text = next(t for _, t in bot.sent if "변동 알림" in t)
+    assert "입국장 출구" in text and "A" in text
+    await bot_ctx.service.client.aclose()
