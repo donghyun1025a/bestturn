@@ -13,7 +13,7 @@ from . import config as config_module
 from .iia import KST, IiaClient, IiaError
 from .protocol import airport_icao
 from .runner import IngestRunner
-from .settings import Settings
+from .settings import Settings, checkout_version
 from .storage import EtaStore
 
 WEB_ROOT = Path(__file__).parent / "web"
@@ -63,6 +63,8 @@ class Api:
                 "airlines": list(settings.airlines),
                 "airport": settings.airport,
                 "server_time": time.time(),
+                "version": checkout_version(),
+                "db_path": str(settings.db_path),
             }
 
         if path == "/api/arrivals":

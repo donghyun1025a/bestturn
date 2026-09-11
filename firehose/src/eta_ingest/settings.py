@@ -17,6 +17,18 @@ DEFAULT_AIRPORT = "ICN"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def checkout_version() -> str:
+    """현재 체크아웃된 커밋. "git pull 이 적용됐나"를 화면에서 확인하기 위한 값입니다."""
+    git = PROJECT_ROOT.parent / ".git"
+    try:
+        head = (git / "HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            head = (git / head[5:]).read_text().strip()
+        return head[:7]
+    except OSError:
+        return "unknown"
+
+
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     try:

@@ -189,6 +189,11 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   <div id="body" class="scroll"><p class="empty">불러오는 중…</p></div>
 </section>
 
+<footer class="hint" style="margin-top:20px; display:flex; gap:14px; flex-wrap:wrap;">
+  <span>버전 <span id="version" class="mono">—</span></span>
+  <span>DB <span id="dbPath" class="mono">—</span></span>
+</footer>
+
 </div>
 
 <dialog id="trailDialog">
@@ -266,6 +271,8 @@ async function refreshStatus() {
   } catch (err) {
     return alertBox(`서버에 연결할 수 없습니다: ${err.message}`);
   }
+  $("version").textContent = state.version || "—";
+  $("dbPath").textContent = state.db_path || "—";
   const pill = $("status");
   const running = state.running;
   const trouble = state.last_error || (running && !state.last_message_at && state.connect_error);
