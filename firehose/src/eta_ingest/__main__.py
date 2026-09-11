@@ -1,7 +1,7 @@
-"""python -m eta_ingest [ui|ingest]
+"""python run.py [ui|ingest]
 
 ui     — 웹 대시보드. 자격증명 입력·수집 시작/중지·조회·대조를 모두 여기서 합니다 (기본값).
-ingest — UI 없이 수집만. 자격증명은 환경변수로 받습니다.
+ingest — UI 없이 수집만. 자격증명은 환경변수로 받습니다 (서버 상주용).
 """
 from __future__ import annotations
 

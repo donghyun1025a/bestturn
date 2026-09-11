@@ -8,10 +8,29 @@ WE · 8M · AS · AA · WS 의 **인천(ICN) 도착편**을 FlightAware Firehose
 
 ## 실행
 
+### 윈도우
+
+먼저 [Python](https://www.python.org/downloads/) 설치 시 **"Add python.exe to PATH"** 를 체크하고,
+[Git](https://git-scm.com/download/win) 을 설치합니다. 그다음 명령 프롬프트에서:
+
+```bat
+cd %USERPROFILE%
+git clone -b claude/sharp-ritchie-7ejt2a https://github.com/donghyun1025a/bestturn.git
+cd bestturn\firehose
+start.bat
+```
+
+`start.bat` 은 가상환경 생성·의존성 설치·대시보드 실행까지 알아서 합니다.
+다음부터는 `start.bat` 을 더블클릭만 하면 됩니다.
+
+### 맥 · 리눅스
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
+git clone -b claude/sharp-ritchie-7ejt2a https://github.com/donghyun1025a/bestturn.git
+cd bestturn/firehose
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=src python -m eta_ingest
+python run.py
 ```
 
 브라우저가 열리면 **Firehose 사용자명과 API Key 만 넣고 「저장하고 수집 시작」**을 누르면 됩니다.
@@ -28,8 +47,7 @@ PYTHONPATH=src python -m eta_ingest
   기재 등록번호로 먼저 맞추고, 없으면 편명으로 맞춥니다. 대조 근거를 행마다 표시합니다.
 - 상태 배지에 접속 실패 사유가 그대로 뜹니다 (잘못된 API Key, 방화벽 차단 등).
 
-UI 없이 수집만 돌리려면 `PYTHONPATH=src python -m eta_ingest ingest` 로 실행하고
-자격증명을 환경변수로 넘깁니다 (서버 상주용).
+UI 없이 수집만 돌리려면 `python run.py ingest` 로 실행하고 자격증명을 환경변수로 넘깁니다 (서버 상주용).
 
 | 변수 | 설명 |
 |---|---|
