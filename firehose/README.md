@@ -53,7 +53,7 @@ UI 없이 수집만 돌리려면 `python run.py ingest` 로 실행하고 자격�
 |---|---|
 | `ETA_AIRLINES` | 수집 대상 항공사 IATA 코드 (기본 `WE,8M,AS,AA,WS`) |
 | `ETA_AIRPORT` | 도착 공항 (기본 `ICN` — 내부적으로 ICAO `RKSI` 로 변환) |
-| `ETA_DB_PATH` | SQLite 경로 (기본 `data/eta.db`) |
+| `ETA_DB_PATH` | SQLite 경로. 기본값은 실행 위치와 무관하게 `firehose/data/eta.db` 입니다 |
 | `ETA_API_HOST` / `ETA_API_PORT` | 대시보드 바인딩 (기본 `127.0.0.1:8800`) |
 
 ## HTTP API
@@ -155,6 +155,12 @@ DNS → TCP → TLS 순으로 짚어 어디서 막히는지 알려줍니다. 흔
 맞추지 못한 편도 버리지 않고 `대조 근거: 매칭 실패` 로 표시합니다.
 
 ## 저장 구조
+
+수집한 데이터는 전부 **`firehose/data/eta.db`** 파일 하나에 들어갑니다 (SQLite).
+윈도우에서 `start.bat` 으로 실행했다면 `C:\Users\<사용자>\bestturn\firehose\data\eta.db` 입니다.
+서버가 아니라 이 PC 안에만 있으므로, 백업은 이 파일을 복사하면 끝입니다.
+`.gitignore` 에 있어 저장소에 올라가지 않습니다 (자격증명이 들어 있습니다).
+
 
 - `flights` — 편별 최신 상태 1행 (예정/예측/실제 시각, 게이트·터미널·수하물 수취대, 결항 여부)
 - `eta_history` — 도착 예정시각이 **바뀐 시점만** 기록 (예측 학습용)

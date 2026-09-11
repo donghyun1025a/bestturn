@@ -10,6 +10,7 @@ from eta_ingest.api import Api
 from eta_ingest.compare import compare
 from eta_ingest.iia import IiaArrival, IiaClient, IiaError, _epoch
 from eta_ingest.runner import IngestRunner
+from eta_ingest.settings import PROJECT_ROOT, Settings
 
 # 2022-03-13 16:35 KST == 1647156900
 IIA_ROW = {
@@ -26,6 +27,23 @@ FIREHOSE_ROW = {
 
 
 # ---------------------------------------------------------------------- 설정
+def test_db_lands_in_the_project_folder_regardless_of_where_it_was_run(monkeypatch, tmp_path):
+    """상대경로면 다른 폴더에서 실행했을 때 빈 DB 가 새로 생깁니다."""
+    monkeypatch.delenv("ETA_DB_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    path = Settings().db_path
+
+    assert path.is_absolute()
+    assert path == PROJECT_ROOT / "data" / "eta.db"
+
+
+def test_explicit_db_path_still_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("ETA_DB_PATH", str(tmp_path / "elsewhere.db"))
+    assert Settings().db_path == tmp_path / "elsewhere.db"
+
+
+
 def test_saved_config_overrides_environment(store, settings):
     config.save(store, {"firehose_username": "kim", "airlines": "KE, OZ", "airport": "gmp"})
 

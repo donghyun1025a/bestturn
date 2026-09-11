@@ -12,6 +12,10 @@ load_dotenv()
 DEFAULT_AIRLINES = "WE,8M,AS,AA,WS"
 DEFAULT_AIRPORT = "ICN"
 
+# firehose/ 폴더. DB 를 실행 위치가 아니라 여기에 고정합니다.
+# 상대경로로 두면 다른 폴더에서 실행했을 때 빈 DB 가 새로 생겨 그동안 모은 이력이 안 보입니다.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -43,7 +47,9 @@ class Settings:
     service_key: str = field(default_factory=lambda: os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip())
     airlines: tuple[str, ...] = field(default_factory=lambda: _codes("ETA_AIRLINES", DEFAULT_AIRLINES))
     airport: str = field(default_factory=lambda: os.getenv("ETA_AIRPORT", DEFAULT_AIRPORT).strip().upper())
-    db_path: Path = field(default_factory=lambda: Path(os.getenv("ETA_DB_PATH", "data/eta.db")))
+    db_path: Path = field(
+        default_factory=lambda: Path(os.getenv("ETA_DB_PATH", "").strip() or PROJECT_ROOT / "data" / "eta.db")
+    )
     api_host: str = field(default_factory=lambda: os.getenv("ETA_API_HOST", "127.0.0.1").strip())
     api_port: int = field(default_factory=lambda: _int("ETA_API_PORT", 8800))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO").upper())
