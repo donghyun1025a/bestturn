@@ -49,6 +49,7 @@ def run(settings: Settings) -> None:
         host=settings.host,
         port=settings.port,
         airport=settings.airport,
+        ca_bundle=settings.ca_bundle or None,
     )
     client.last_pitr = store.get_pitr()
     ingest(client.stream(), store, settings)

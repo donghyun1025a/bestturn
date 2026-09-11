@@ -39,6 +39,7 @@ class IngestRunner:
             host=settings.host,
             port=settings.port,
             airport=settings.airport,
+            ca_bundle=settings.ca_bundle or None,
         )
 
     @property

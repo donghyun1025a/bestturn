@@ -108,6 +108,27 @@ live username <user> password <apikey> useragent bestturn-eta keepalive 60 \
 `predicted_on` / `predicted_in` 은 FlightAware Foresight 계약이 있어야 내려옵니다.
 없어도 정상 동작하며 `estimated_*` 로 자동 대체됩니다. 체험 계정에서 실제로 내려오는지 확인이 필요합니다.
 
+## 접속이 안 될 때
+
+```bat
+python run.py doctor
+```
+
+DNS → TCP → TLS 순으로 짚어 어디서 막히는지 알려줍니다. 흔한 두 가지는 이렇습니다.
+
+**`1501 포트가 방화벽에 막혀 있습니다`** — Firehose 는 웹(443)이 아니라 1501 포트를 씁니다.
+사내 방화벽에서 기본 차단되는 경우가 많습니다. 전산팀에 `206.253.80.0/21` 대역의
+`1501/TCP` 아웃바운드 허용을 요청하세요.
+
+**`TLS 인증서 검증 실패`** — 원인이 둘이라 `doctor` 가 구분해 줍니다.
+
+- 윈도우의 파이썬은 시스템 루트 저장소를 온전히 읽지 못해 멀쩡한 사이트도 검증에 실패합니다.
+  그래서 `certifi` 번들을 함께 신뢰하도록 해 두었습니다 (대부분 이걸로 해결됩니다).
+- 사내 방화벽이 통신을 가로채 자체 인증서를 제시하는 환경이라면, 전산팀에서 받은
+  사내 루트 CA 파일을 `.env` 의 `FIREHOSE_CA_BUNDLE` 에 지정하세요.
+
+인증서 검증을 끄는 선택지는 두지 않았습니다. 그 경로로는 Firehose API Key 가 그대로 노출됩니다.
+
 ### 접속 타임아웃
 
 `firehose.flightaware.com` 은 A 레코드가 8개입니다. 파이썬 기본 동작(`socket.create_connection`)은

@@ -32,6 +32,39 @@ class FirehoseError(RuntimeError):
     """서버가 error 메시지를 보냈거나 접속이 끊긴 경우."""
 
 
+def build_context(ca_bundle: str | None = None) -> ssl.SSLContext:
+    """검증에 쓸 TLS 설정.
+
+    윈도우의 파이썬은 시스템 루트 저장소에 "아직 내려받지 않은" 루트 인증서를 보지 못해
+    멀쩡한 사이트도 검증에 실패합니다. certifi 번들이 있으면 그것을 함께 신뢰합니다.
+    사내 방화벽이 TLS 를 가로채는 환경에서는 FIREHOSE_CA_BUNDLE 로 사내 CA 를 지정하세요.
+    """
+    if ca_bundle:
+        context = ssl.create_default_context(cafile=ca_bundle)
+    else:
+        context = ssl.create_default_context()
+        try:
+            import certifi
+
+            context.load_verify_locations(cafile=certifi.where())
+        except ImportError:
+            pass
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def describe_failure(exc: Exception) -> str:
+    """실패 사유를 화면에 그대로 띄울 수 있는 문장으로 바꿉니다."""
+    if isinstance(exc, FirehoseError):
+        return f"Firehose 가 오류를 보냈습니다: {exc}"
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return (
+            "TLS 인증서 검증 실패. 사내 방화벽이 통신을 가로채고 있을 수 있습니다. "
+            "「python run.py doctor」 를 실행해 어느 쪽인지 확인하세요."
+        )
+    return str(exc)
+
+
 def _open_socket(host: str, port: int) -> socket.socket:
     """주소를 차례로 시도하되 전체 CONNECT_TIMEOUT 을 넘기지 않습니다."""
     deadline = time.monotonic() + CONNECT_TIMEOUT
@@ -52,10 +85,8 @@ def _open_socket(host: str, port: int) -> socket.socket:
     raise OSError(f"{host}:{port} 접속 실패 — {detail}")
 
 
-def _connect(host: str, port: int, read_timeout: float) -> ssl.SSLSocket:
-    context = ssl.create_default_context()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    sock = context.wrap_socket(_open_socket(host, port), server_hostname=host)
+def _connect(host: str, port: int, read_timeout: float, ca_bundle: str | None = None) -> ssl.SSLSocket:
+    sock = build_context(ca_bundle).wrap_socket(_open_socket(host, port), server_hostname=host)
     sock.settimeout(read_timeout)
     return sock
 
@@ -71,8 +102,10 @@ class FirehoseClient:
         airport: str | None = None,
         keepalive: int = 60,
         compression: str | None = "gzip",
-        connect: Callable[[str, int, float], ssl.SSLSocket] = _connect,
+        ca_bundle: str | None = None,
+        connect: Callable[..., ssl.SSLSocket] = _connect,
     ) -> None:
+        self.ca_bundle = ca_bundle
         self.username = username
         self.password = password
         self.host = host
@@ -138,14 +171,14 @@ class FirehoseClient:
         while True:
             sock = None
             try:
-                sock = self._connect(self.host, self.port, self.keepalive + READ_TIMEOUT_MARGIN)
+                sock = self._connect(
+                    self.host, self.port, self.keepalive + READ_TIMEOUT_MARGIN, self.ca_bundle
+                )
                 yield from self._session(sock)
                 failures = 0
                 self.last_connect_error = None
             except (OSError, FirehoseError) as exc:
-                self.last_connect_error = (
-                    f"Firehose 가 오류를 보냈습니다: {exc}" if isinstance(exc, FirehoseError) else str(exc)
-                )
+                self.last_connect_error = describe_failure(exc)
                 # pitr 을 한 번도 못 받았다면 재개할 지점이 없으므로 실패를 셉니다.
                 if self.last_pitr is None:
                     failures += 1
