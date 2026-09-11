@@ -71,6 +71,24 @@ def accepted_prefixes(airlines: tuple[str, ...]) -> frozenset[str]:
     return frozenset(out)
 
 
+def candidate_flight_numbers(ident: str) -> frozenset[str]:
+    """공공데이터(IATA 편명)와 대조하기 위한 후보 편명들.
+
+    Firehose 는 ICAO 콜사인(THA657)으로도 보내므로 IATA 표기(WE657)를 함께 만듭니다.
+    하나의 ICAO 코드가 여러 IATA 코드에 걸릴 수 있어 후보를 모두 돌려줍니다.
+    """
+    ident = (ident or "").strip().upper()
+    match = _ICAO_IDENT.match(ident) or _IATA_IDENT.match(ident)
+    if not match:
+        return frozenset()
+    prefix, number = match.groups()
+    out = {f"{prefix}{int(re.sub(r'[^0-9]', '', number) or 0)}"}
+    for iata, icaos in ICAO_BY_IATA.items():
+        if prefix in icaos or prefix == iata:
+            out.add(f"{iata}{int(re.sub(r'[^0-9]', '', number) or 0)}")
+    return frozenset(out)
+
+
 def ident_airline(ident: str) -> str | None:
     """편명에서 항공사 코드를 뽑습니다. THA501 → THA, 8M501 → 8M."""
     ident = (ident or "").strip().upper()

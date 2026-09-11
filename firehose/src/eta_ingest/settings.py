@@ -37,6 +37,8 @@ class Settings:
     password: str = field(default_factory=lambda: os.getenv("FIREHOSE_PASSWORD", "").strip())
     host: str = field(default_factory=lambda: os.getenv("FIREHOSE_HOST", "firehose.flightaware.com").strip())
     port: int = field(default_factory=lambda: _int("FIREHOSE_PORT", 1501))
+    # 인천공항 공공데이터 대조용 (없으면 대조 기능만 꺼집니다)
+    service_key: str = field(default_factory=lambda: os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip())
     airlines: tuple[str, ...] = field(default_factory=lambda: _codes("ETA_AIRLINES", DEFAULT_AIRLINES))
     airport: str = field(default_factory=lambda: os.getenv("ETA_AIRPORT", DEFAULT_AIRPORT).strip().upper())
     db_path: Path = field(default_factory=lambda: Path(os.getenv("ETA_DB_PATH", "data/eta.db")))

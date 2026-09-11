@@ -1,25 +1,32 @@
-"""python -m eta_ingest ingest | api"""
+"""python -m eta_ingest [ui|ingest]
+
+ui     — 웹 대시보드. 자격증명 입력·수집 시작/중지·조회·대조를 모두 여기서 합니다 (기본값).
+ingest — UI 없이 수집만. 자격증명은 환경변수로 받습니다.
+"""
 from __future__ import annotations
 
 import logging
 import sys
+import webbrowser
 
 from . import api, ingest
 from .settings import Settings
 
 
 def main(argv: list[str]) -> int:
-    command = argv[1] if len(argv) > 1 else "ingest"
+    command = argv[1] if len(argv) > 1 else "ui"
     settings = Settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    if command == "ingest":
-        ingest.run(settings)
-    elif command == "api":
-        logging.info("조회 API — http://%s:%d", settings.api_host, settings.api_port)
+    if command in ("ui", "api"):
+        url = f"http://{settings.api_host}:{settings.api_port}"
+        logging.info("대시보드 — %s", url)
+        webbrowser.open(url)
         api.serve(settings)
+    elif command == "ingest":
+        ingest.run(settings)
     else:
-        print("사용법: python -m eta_ingest [ingest|api]", file=sys.stderr)
+        print(__doc__, file=sys.stderr)
         return 2
     return 0
 

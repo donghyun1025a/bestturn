@@ -44,6 +44,12 @@ CREATE TABLE IF NOT EXISTS stream_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- UI 에서 입력한 설정. 자격증명이 들어 있어 DB 파일 권한을 0600 으로 제한합니다.
+CREATE TABLE IF NOT EXISTS app_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -61,6 +67,8 @@ class EtaStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+        # Firehose API Key 가 app_config 에 들어가므로 소유자만 읽을 수 있게 합니다.
+        self.path.chmod(0o600)
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -150,6 +158,19 @@ class EtaStore:
                 (flight_id,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def config(self) -> dict[str, str]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT key, value FROM app_config").fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def save_config(self, values: dict[str, str]) -> None:
+        with self._conn() as conn:
+            conn.executemany(
+                "INSERT INTO app_config (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                list(values.items()),
+            )
 
     def get_pitr(self) -> int | None:
         with self._conn() as conn:

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import socket
 import zlib
 
 import pytest
-from eta_ingest.client import STALE_KEEPALIVE_LIMIT, FirehoseClient, FirehoseError
+from eta_ingest import client as client_module
+from eta_ingest.client import CONNECT_TIMEOUT, STALE_KEEPALIVE_LIMIT, FirehoseClient, FirehoseError
 
 
 class FakeSocket:
@@ -89,6 +91,52 @@ def test_server_error_message_raises():
 
     with pytest.raises(FirehoseError, match="bad password"):
         list(client._session(sock))
+
+
+def test_connect_gives_up_on_the_whole_address_list_not_each_address(monkeypatch):
+    """호스트에 A 레코드가 8개라, 주소마다 타임아웃을 새로 쓰면 8배로 멈춥니다."""
+    addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (f"10.0.0.{i}", 1501)) for i in range(8)]
+    monkeypatch.setattr(client_module.socket, "getaddrinfo", lambda *a, **k: addresses)
+    elapsed = [0.0]
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: elapsed[0])
+
+    attempted: list[str] = []
+
+    class NeverConnects:
+        def __init__(self, *_): pass
+        def settimeout(self, value): self._timeout = value
+        def close(self): pass
+
+        def connect(self, address):
+            attempted.append(address[0])
+            elapsed[0] += self._timeout  # 타임아웃만큼 시간이 흘렀다고 봅니다
+            raise TimeoutError("timed out")
+
+    monkeypatch.setattr(client_module.socket, "socket", NeverConnects)
+
+    with pytest.raises(OSError, match="접속 실패"):
+        client_module._open_socket("firehose.flightaware.com", 1501)
+
+    assert elapsed[0] <= CONNECT_TIMEOUT
+    assert len(attempted) < len(addresses)
+
+
+def test_connect_error_names_the_addresses_that_failed(monkeypatch):
+    monkeypatch.setattr(
+        client_module.socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.7", 1501))],
+    )
+
+    class Refused:
+        def __init__(self, *_): pass
+        def settimeout(self, _): pass
+        def close(self): pass
+        def connect(self, _): raise ConnectionRefusedError("refused")
+
+    monkeypatch.setattr(client_module.socket, "socket", Refused)
+
+    with pytest.raises(OSError, match=r"10\.0\.0\.7"):
+        client_module._open_socket("firehose.flightaware.com", 1501)
 
 
 def test_stalled_keepalive_pitr_ends_the_session():

@@ -11,32 +11,49 @@ WE · 8M · AS · AA · WS 의 **인천(ICN) 도착편**을 FlightAware Firehose
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env      # FIREHOSE_USERNAME, FIREHOSE_PASSWORD 입력
-PYTHONPATH=src python -m eta_ingest ingest    # 수집기
-PYTHONPATH=src python -m eta_ingest api       # 조회 API
+PYTHONPATH=src python -m eta_ingest
 ```
 
-`FIREHOSE_PASSWORD` 에는 계정 비밀번호가 아니라 **Firehose API Key** 를 넣습니다.
-인증 정보는 저장소에 커밋하지 마세요 — `.env` 는 이미 `.gitignore` 에 있습니다.
+브라우저가 열리면 **Firehose 사용자명과 API Key 만 넣고 「저장하고 수집 시작」**을 누르면 됩니다.
+나머지(수집 시작·DB 적재·조회·공공데이터 대조)는 모두 화면에서 합니다.
+
+- `FIREHOSE_PASSWORD` 자리에는 계정 비밀번호가 아니라 **Firehose API Key** 를 넣습니다.
+- 입력값은 DB 파일(`app_config` 테이블, 권한 0600)에만 저장되고 화면으로 다시 내려오지 않습니다.
+- 공공데이터 서비스키는 **대조 탭에서만** 씁니다. 비워 두면 나머지 기능은 그대로 동작합니다.
+
+### 화면 구성
+
+- **도착 예정편** — 편명·예정·ETA·지연·게이트·수취대. 행을 누르면 그 편의 ETA 변경 이력이 뜹니다.
+- **공공데이터 대조** — 같은 편의 Firehose ETA 와 인천공항 공공데이터 예상시각을 나란히 놓고 분 단위 차이를 보여줍니다.
+  기재 등록번호로 먼저 맞추고, 없으면 편명으로 맞춥니다. 대조 근거를 행마다 표시합니다.
+- 상태 배지에 접속 실패 사유가 그대로 뜹니다 (잘못된 API Key, 방화벽 차단 등).
+
+UI 없이 수집만 돌리려면 `PYTHONPATH=src python -m eta_ingest ingest` 로 실행하고
+자격증명을 환경변수로 넘깁니다 (서버 상주용).
 
 | 변수 | 설명 |
 |---|---|
 | `ETA_AIRLINES` | 수집 대상 항공사 IATA 코드 (기본 `WE,8M,AS,AA,WS`) |
 | `ETA_AIRPORT` | 도착 공항 (기본 `ICN` — 내부적으로 ICAO `RKSI` 로 변환) |
 | `ETA_DB_PATH` | SQLite 경로 (기본 `data/eta.db`) |
-| `ETA_API_HOST` / `ETA_API_PORT` | 조회 API 바인딩 (기본 `127.0.0.1:8800`) |
+| `ETA_API_HOST` / `ETA_API_PORT` | 대시보드 바인딩 (기본 `127.0.0.1:8800`) |
 
-## 조회 API
+## HTTP API
+
+UI 가 쓰는 엔드포인트이며 다른 사내 시스템에서도 그대로 호출할 수 있습니다.
 
 | 경로 | 설명 |
 |---|---|
-| `GET /arrivals?hours=12` | 앞으로 N시간 내 도착 예정편 (최대 72시간) |
-| `GET /flight?ident=THA657` | 편명별 최신 상태 |
-| `GET /history?flight_id=...` | 해당 편의 ETA 변경 이력 전체 |
-| `GET /health` | 마지막으로 처리한 `pitr` 확인 |
+| `GET /api/arrivals?hours=12` | 앞으로 N시간 내 도착 예정편 (최대 72시간) |
+| `GET /api/flight?ident=THA657` | 편명별 최신 상태 |
+| `GET /api/history?flight_id=...` | 해당 편의 ETA 변경 이력 전체 |
+| `GET /api/compare?hours=12&date=YYYYMMDD` | 공공데이터와 대조 |
+| `GET /api/status` | 수집 상태·접속 오류·마지막 `pitr` |
+| `POST /api/ingest/start` · `/api/ingest/stop` | 수집 제어 |
 
-인증이 없으므로 **사내망에만 바인딩**하세요 (기본값이 `127.0.0.1` 인 이유입니다).
+**인증이 없습니다.** 자격증명을 다루므로 기본값대로 `127.0.0.1` 에만 바인딩하세요.
+DNS 리바인딩과 다른 사이트에서 오는 요청을 막으려고 `Host`·`Origin` 헤더를 검사하고,
+POST 는 `application/json` 만 받습니다. 외부에 열어야 한다면 앞단에 인증을 두세요.
 
 ## 수집 방식
 
@@ -73,6 +90,12 @@ live username <user> password <apikey> useragent bestturn-eta keepalive 60 \
 `predicted_on` / `predicted_in` 은 FlightAware Foresight 계약이 있어야 내려옵니다.
 없어도 정상 동작하며 `estimated_*` 로 자동 대체됩니다. 체험 계정에서 실제로 내려오는지 확인이 필요합니다.
 
+### 접속 타임아웃
+
+`firehose.flightaware.com` 은 A 레코드가 8개입니다. 파이썬 기본 동작(`socket.create_connection`)은
+주소마다 타임아웃을 처음부터 다시 쓰기 때문에, 방화벽에 막히면 8배 시간 동안 아무 표시 없이 멈춥니다.
+그래서 주소 목록 전체에 15초 마감시간을 걸고, 실패한 주소를 문구에 담아 UI 로 올립니다.
+
 ### 끊김 복구
 
 모든 메시지에 스트림 위치 토큰 `pitr` 이 붙습니다. 끊기면 `live` 대신 `pitr <마지막값>` 으로
@@ -80,11 +103,24 @@ live username <user> password <apikey> useragent bestturn-eta keepalive 60 \
 프로세스를 재시작해도 이어집니다. keepalive 의 `pitr` 이 연속 5회 제자리면
 바이트가 흐르더라도 멈춘 것으로 보고 재접속합니다.
 
+## 공공데이터 대조
+
+인천공항 도착 정보(`getFltArrivalsDeOdp`)를 불러와 같은 편끼리 맞춥니다.
+공공데이터 시각은 KST 문자열(`YYYYMMDDHHMM`), Firehose 는 POSIX epoch 이라 epoch 으로 통일해 비교합니다.
+
+편명 표기가 서로 달라서(Firehose `THA657` ↔ 공공데이터 `WE 0657`) 매칭은 두 단계입니다.
+
+1. **기재 등록번호** — `HS-TBA` ↔ `HSTBA`. 가장 확실합니다.
+2. **편명** — ICAO 콜사인을 IATA 로 되돌려 후보를 만들고, 코드셰어 마스터 편명까지 봅니다.
+
+맞추지 못한 편도 버리지 않고 `대조 근거: 매칭 실패` 로 표시합니다.
+
 ## 저장 구조
 
 - `flights` — 편별 최신 상태 1행 (예정/예측/실제 시각, 게이트·터미널·수하물 수취대, 결항 여부)
 - `eta_history` — 도착 예정시각이 **바뀐 시점만** 기록 (예측 학습용)
 - `stream_state` — 재개용 `pitr`
+- `app_config` — UI 에서 입력한 자격증명·대상 항공사 (권한 0600)
 
 ## 테스트
 
