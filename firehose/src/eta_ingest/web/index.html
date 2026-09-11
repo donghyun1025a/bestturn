@@ -203,10 +203,24 @@ const KST = "Asia/Seoul";
 let view = "arrivals";
 let state = {};
 
-const hhmm = (epoch) => epoch
-  ? new Date(epoch * 1000).toLocaleTimeString("ko-KR",
-      { timeZone: KST, hour: "2-digit", minute: "2-digit", hour12: false })
-  : "—";
+const parts = (epoch) => {
+  const f = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: KST, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(epoch * 1000));
+  return Object.fromEntries(f.map((p) => [p.type, p.value]));
+};
+
+// 시각만 쓰면 다른 날짜(체험 계정의 과거 데이터 등)를 오늘 편으로 오해합니다.
+const hhmm = (epoch) => {
+  if (!epoch) return "—";
+  const t = parts(epoch);
+  const today = parts(Date.now() / 1000);
+  const time = `${t.hour}:${t.minute}`;
+  if (t.year === today.year && t.month === today.month && t.day === today.day) return time;
+  if (t.year === today.year) return `${t.month}-${t.day} ${time}`;
+  return `${t.year}-${t.month}-${t.day} ${time}`;
+};
 
 const ago = (epoch) => {
   const secs = Math.max(0, Math.round(Date.now() / 1000 - epoch));
@@ -272,6 +286,16 @@ async function refreshStatus() {
 // ------------------------------------------------------------------ 표 렌더링
 function renderArrivals(data) {
   if (!data.flights.length) {
+    const stored = data.stored || {};
+    if (stored.total) {
+      // 수집은 됐지만 전부 조회 범위 밖인 경우 — 체험 계정이 과거 데이터를 재생하면 이렇게 됩니다.
+      return `<p class="empty">
+        <strong>${stored.total}편을 받았지만 모두 조회 범위 밖입니다.</strong><br>
+        받은 도착시각: ${hhmm(stored.first_eta)} ~ ${hhmm(stored.last_eta)}<br>
+        <span class="muted">Firehose 계정이 과거 데이터를 재생(replay)하고 있을 수 있습니다.
+        FlightAware 에 체험 계정이 실시간 데이터를 받는지 확인해 보세요.</span>
+      </p>`;
+    }
     return `<p class="empty">${state.running
       ? "아직 수신된 도착편이 없습니다. 스트림이 붙는 데 몇 분 걸릴 수 있습니다."
       : "수집을 시작하면 도착편이 표시됩니다."}</p>`;

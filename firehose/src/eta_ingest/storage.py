@@ -151,6 +151,15 @@ class EtaStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def span(self) -> dict:
+        """저장된 전체 편수와 도착시각 범위. 조회 결과가 비었을 때 이유를 설명하는 데 씁니다."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS total, MIN(eta) AS first_eta, MAX(eta) AS last_eta"
+                " FROM flights WHERE eta IS NOT NULL"
+            ).fetchone()
+        return dict(row)
+
     def history(self, flight_id: str) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(

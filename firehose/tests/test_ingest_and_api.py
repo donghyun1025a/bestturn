@@ -91,6 +91,22 @@ def test_unknown_path_is_404(api):
     assert api.get("/api/nope", {})[0] == 404
 
 
+def test_arrivals_reports_what_is_stored_so_an_empty_window_can_explain_itself(api, store, settings):
+    """체험 계정이 과거 데이터를 재생하면 창은 비지만 DB 에는 쌓입니다."""
+    ingest([FLIFO], store, settings)  # 2022년 편 — 지금 조회 범위 밖
+
+    _, payload = api.get("/api/arrivals", {"hours": ["12"]})
+
+    assert payload["flights"] == []
+    assert payload["stored"]["total"] == 1
+    assert payload["stored"]["first_eta"] == 1647170100
+
+
+def test_stored_span_is_zero_before_anything_arrives(api):
+    _, payload = api.get("/api/arrivals", {})
+    assert payload["stored"]["total"] == 0
+
+
 def test_compare_needs_a_service_key(api):
     status, payload = api.get("/api/compare", {})
     assert status == 400

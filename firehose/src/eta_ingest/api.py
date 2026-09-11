@@ -70,7 +70,8 @@ class Api:
             now = int(time.time())
             dest = airport_icao(_str_param(params, "dest", settings.airport) or settings.airport)
             rows = self.store.arrivals(dest, since=now - 3600, until=now + hours * 3600)
-            return 200, {"dest": dest, "hours": hours, "flights": rows}
+            # 범위 밖이라 비어 있는 것인지, 아직 아무것도 못 받은 것인지 화면이 구분해야 합니다.
+            return 200, {"dest": dest, "hours": hours, "flights": rows, "stored": self.store.span()}
 
         if path == "/api/flight":
             ident = _str_param(params, "ident").upper()

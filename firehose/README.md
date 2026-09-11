@@ -106,7 +106,8 @@ live username <user> password <apikey> useragent bestturn-eta keepalive 60 \
 쌓이므로, **예측 모델 학습에 쓸 "시간에 따른 ETA 변화 vs 실제 도착시각" 데이터가 그대로 남습니다.**
 
 `predicted_on` / `predicted_in` 은 FlightAware Foresight 계약이 있어야 내려옵니다.
-없어도 정상 동작하며 `estimated_*` 로 자동 대체됩니다. 체험 계정에서 실제로 내려오는지 확인이 필요합니다.
+없어도 정상 동작하며 `estimated_*` 로 자동 대체됩니다.
+**체험 계정에서 실제로 내려오는 것을 확인했습니다** — 대표 ETA 가 `predicted_in` 으로 잡힙니다.
 
 ## 접속이 안 될 때
 
@@ -175,6 +176,29 @@ python -m pytest
 
 FlightAware 공개 저장소(`firestarter`, `firehose_examples`)의 실제 메시지 픽스처를 기준으로
 필드명·타입을 고정했습니다. 소켓은 가짜 객체로 대체해 네트워크 없이 전부 실행됩니다.
+
+## DB 내용을 직접 보려면
+
+`eta.db` 는 SQLite 파일이라 메모장으로 열면 깨져 보입니다. 정상입니다.
+[DB Browser for SQLite](https://sqlitebrowser.org/) 같은 도구로 열거나, 파이썬으로 봅니다.
+
+```bash
+python - <<'PY'
+import sqlite3, datetime
+conn = sqlite3.connect("data/eta.db"); conn.row_factory = sqlite3.Row
+kst = datetime.timezone(datetime.timedelta(hours=9))
+for r in conn.execute("SELECT ident, orig, eta, eta_source FROM flights ORDER BY eta"):
+    t = datetime.datetime.fromtimestamp(r["eta"], kst) if r["eta"] else None
+    print(r["ident"], r["orig"], t, r["eta_source"])
+PY
+```
+
+### 화면은 비었는데 DB 에는 쌓여 있다면
+
+「도착 예정편」은 **현재 시각 기준** 창만 보여줍니다. 받은 편이 모두 그 밖이면
+표 대신 실제로 받은 도착시각 범위를 알려줍니다. 이 범위가 과거로 나오면
+Firehose 계정이 실시간이 아니라 **과거 데이터를 재생(replay)** 하고 있는 것입니다.
+체험 계정에서 실제로 관측된 적이 있으니, FlightAware 에 계약 범위를 확인하세요.
 
 ## 확인이 필요한 부분
 
